@@ -5,18 +5,21 @@ use turtle::{
 };
 
 use iced::widget::{
-    button, column, container, horizontal_space, pick_list, row, scrollable, text, vertical_space,
+    button, column, container, horizontal_space, pick_list, row, scrollable, text, text_editor,
+    vertical_space,
 };
 use iced::{
+    executor,
     theme::{self},
     widget::text_input,
+    Alignment, Application, Command, Element, Length, Settings, Theme,
 };
-use iced::{Alignment, Element, Length, Sandbox, Settings};
 
 pub fn main() -> iced::Result {
     Turtle::run(Settings::default())
 }
 
+// #[derive(Debug, Clone)]
 struct Turtle {
     runtype: RunType,
     hftype: HFType,
@@ -27,6 +30,9 @@ struct Turtle {
     charge: i8,
     multiplicity_str: String,
     multiplicity: u8,
+
+    // coordinates
+    xyz: text_editor::Content,
 
     // program settings
     selection_width: u16,
@@ -43,6 +49,7 @@ impl Default for Turtle {
             charge: 0,
             multiplicity_str: "1".to_string(),
             multiplicity: 1,
+            xyz: text_editor::Content::new(),
             selection_width: 200,
         }
     }
@@ -55,24 +62,28 @@ enum Message {
     CorrelationMethodTypeSelected(CorrelationMethod),
     BasisSetSelected(BasisSet),
     ChargeEditing(String),
-    ChargeEdited(String),
+    ChargeEdited,
     MultiplicityEditing(String),
-    MultiplicityEdited(String),
+    MultiplicityEdited,
+    XYZEdit(text_editor::Action),
     RunORCA,
 }
 
-impl Sandbox for Turtle {
+impl Application for Turtle {
     type Message = Message;
+    type Flags = ();
+    type Executor = executor::Default;
+    type Theme = Theme;
 
-    fn new() -> Self {
-        Self::default()
+    fn new(_flags: Self::Flags) -> (Self, Command<Message>) {
+        (Self::default(), Command::none())
     }
 
     fn title(&self) -> String {
         String::from("Turtle - ORCA GUI")
     }
 
-    fn update(&mut self, message: Message) {
+    fn update(&mut self, message: Message) -> Command<Message> {
         match message {
             Message::RunTypeSelected(runtype) => self.runtype = runtype,
             Message::HFTypeSelected(hftype) => self.hftype = hftype,
@@ -85,7 +96,7 @@ impl Sandbox for Turtle {
             }
             Message::BasisSetSelected(basis_set) => self.basis_set = basis_set,
             Message::ChargeEditing(charge) => self.charge_str = charge,
-            Message::ChargeEdited(charge) => match charge.parse::<i8>() {
+            Message::ChargeEdited => match self.charge_str.parse::<i8>() {
                 Ok(c) => self.charge = c,
                 Err(_) => {
                     self.charge_str = "0".to_string();
@@ -93,22 +104,26 @@ impl Sandbox for Turtle {
                 }
             },
             Message::MultiplicityEditing(multiplicity) => self.multiplicity_str = multiplicity,
-            Message::MultiplicityEdited(multiplicity) => match multiplicity.parse::<u8>() {
+            Message::MultiplicityEdited => match self.multiplicity_str.parse::<u8>() {
                 Ok(m) => self.multiplicity = m,
                 Err(_) => {
                     self.multiplicity_str = "1".to_string();
                     self.multiplicity = 1
                 }
             },
+            Message::XYZEdit(action) => {
+                self.xyz.perform(action);
+            }
             Message::RunORCA => (),
-            _ => (),
         }
+
+        Command::none()
     }
 
-    fn view(&self) -> Element<Message> {
+    fn view(&self) -> Element<'_, Message> {
         let pick_list_runtype = row![
             text("Run Type"),
-            horizontal_space(Length::Fill),
+            horizontal_space(),
             pick_list(
                 &RunType::ALL[..],
                 Some(self.runtype),
@@ -121,7 +136,7 @@ impl Sandbox for Turtle {
 
         let pick_list_hf = row![
             text("Reference"),
-            horizontal_space(Length::Fill),
+            horizontal_space(),
             pick_list(&HFType::ALL[..], Some(self.hftype), Message::HFTypeSelected)
                 .placeholder(HFType::default().to_string())
                 .width(self.selection_width)
@@ -130,7 +145,7 @@ impl Sandbox for Turtle {
 
         let pick_list_correlation = row![
             text("Correlation Method"),
-            horizontal_space(Length::Fill),
+            horizontal_space(),
             pick_list(
                 &CorrelationMethod::ALL[..],
                 self.correlation_method,
@@ -142,7 +157,7 @@ impl Sandbox for Turtle {
 
         let pick_list_basis_set = row![
             text("Basis Set"),
-            horizontal_space(Length::Fill),
+            horizontal_space(),
             pick_list(
                 &BasisSet::ALL[..],
                 Some(self.basis_set),
@@ -154,18 +169,20 @@ impl Sandbox for Turtle {
 
         let charge = row![
             text("Charge"),
-            horizontal_space(Length::Fill),
-            text_input("0", &self.charge_str, Message::ChargeEditing)
+            horizontal_space(),
+            text_input("0", &self.charge_str)
+                .on_input(Message::ChargeEditing)
                 .width(self.selection_width)
-                .on_submit(Message::ChargeEdited(self.charge_str.clone()))
+                .on_submit(Message::ChargeEdited)
         ];
 
         let multiplicity = row![
             text("Multiplicity"),
-            horizontal_space(Length::Fill),
-            text_input("1", &self.multiplicity_str, Message::MultiplicityEditing)
+            horizontal_space(),
+            text_input("1", &self.multiplicity_str)
+                .on_input(Message::MultiplicityEditing)
                 .width(self.selection_width)
-                .on_submit(Message::MultiplicityEdited(self.multiplicity_str.clone()))
+                .on_submit(Message::MultiplicityEdited)
         ];
 
         let calculation_settings = column![
@@ -175,7 +192,7 @@ impl Sandbox for Turtle {
             pick_list_basis_set,
             charge,
             multiplicity,
-            vertical_space(50),
+            vertical_space().height(50),
             button("Run")
                 .on_press(Message::RunORCA)
                 .style(theme::Button::Secondary),
@@ -185,9 +202,14 @@ impl Sandbox for Turtle {
         .spacing(10)
         .padding(30);
 
-        let molview = column![text("this is where the molecular editor will be\nIced doesn't support multi-line text input yet, unfortunately, nor have I created a proper molecular viewer")]
+        // let molview = column![text("this is where the molecular editor will be\nIced doesn't support multi-line text input yet, unfortunately, nor have I created a proper molecular viewer")]
+        //     .width(Length::Fill)
+        //     .align_items(Alignment::Center);
+        let molview = column![text_editor(&self.xyz).on_action(Message::XYZEdit)]
             .width(Length::Fill)
-            .align_items(Alignment::Center);
+            .align_items(Alignment::Center)
+            .spacing(10)
+            .padding(30);
 
         let content = row![molview, calculation_settings];
 
